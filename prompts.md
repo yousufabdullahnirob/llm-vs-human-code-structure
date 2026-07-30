@@ -15,7 +15,8 @@ Pre-LLM snapshot commit: `ba6f778d8` (last commit before 2020-01-01)
 ### Prompt v1 — Initial Functional Description
 
 **Status:** ACTIVE — used to generate `llm-generated/task1-architecture/v1/`
-**Date run:**
+**Date run:** 2026-07-26
+**Prompt Technique:** Zero-Shot Functional Requirement Prompt (Unprimed Baseline)
 **Reasoning:** Deliberately avoids architectural vocabulary ("layer",
 "controller", "service", "repository") so the LLM's default structural
 choices can be observed without priming.
@@ -83,7 +84,8 @@ runnable codebase. Give each class/file in a separate code block.
 ### Prompt v2 — Refinement
 
 **Status:** ACTIVE — used to generate `llm-generated/task1-architecture/v2/`
-**Date run:**
+**Date run:** 2026-07-26
+**Prompt Technique:** Constraint Priming & Boundary Refinement (CQRS + DTO Rules)
 **Gap this targets:** (1) single God Service instead of Read/Write split,
 (2) JPA entity exposed directly through the API instead of a response DTO.
 **Change made vs v1:** Added two explicit structural constraints (CQRS
@@ -143,7 +145,8 @@ clearly mark which files are new and which are modified.
 ### Prompt v3 — Final Refinement
 
 **Status:** ACTIVE — used to generate `llm-generated/task1-architecture/v3/`
-**Date run:**
+**Date run:** 2026-07-26
+**Prompt Technique:** Single Responsibility Decomposition Priming
 **Gap this targets:** `LoanWriteService` still bundles multiple unrelated
 responsibility groups into one class instead of being decomposed by
 concern, unlike Fineract's fine-grained per-domain service split.
@@ -192,24 +195,13 @@ only. Provide the complete updated codebase.
 
 ---
 
-### Prompt v3 — Final Refinement (PLACEHOLDER)
-
-**Status:** NOT YET CREATED.
-**Gap this targets:**
-**Change made vs v2:**
-
-```
-[to be written]
-```
-
----
-
 ## TASK 2: Design Pattern Preservation
 
 ### Prompt v1 — Initial Functional Description
 
 **Status:** ACTIVE — used to generate `llm-generated/task2-design-patterns/v1/`
-**Date run:**
+**Date run:** 2026-07-26
+**Prompt Technique:** Behavioral Priming (Implicit Pattern Need)
 **Reasoning:** Avoids naming any pattern directly (Strategy, Factory,
 Command, State). Each requirement implies the *need* a pattern solves, so
 pattern adoption (or its absence) in the output can be measured honestly.
@@ -276,7 +268,8 @@ OOP patterns; 1 collapsed into conditional/procedural code.
 ### Prompt v2 — Refinement
 
 **Status:** ACTIVE — used to generate `llm-generated/task2-design-patterns/v2/`
-**Date run:**
+**Date run:** 2026-07-26
+**Prompt Technique:** Architectural Pattern Enforcement Priming (State Pattern)
 **Gap this targets:** State transition rules implemented as a procedural
 `switch` statement instead of the State design pattern (polymorphic
 per-status behavior).
@@ -325,7 +318,8 @@ structural refactor only. Provide the complete updated codebase.
 ### Prompt v3 — Final Refinement (Extensibility / OCP verification)
 
 **Status:** ACTIVE — used to generate `llm-generated/task2-design-patterns/v3/`
-**Date run:**
+**Date run:** 2026-07-26
+**Prompt Technique:** Open-Closed Principle Stress-Testing Prompt
 **Gap this targets:** Not a defect fix — v1 and v2 already introduced all
 three target patterns. v3 instead tests whether the patterns were
 implemented *correctly* by verifying Open/Closed compliance: does adding
@@ -377,24 +371,14 @@ not accommodate the extension cleanly.
 
 ---
 
-
----
-
-### Prompt v3 — Final Refinement (PLACEHOLDER)
-
-**Status:** NOT YET CREATED.
-**Gap this targets:**
-**Change made vs v2:**
-
-```
-[to be written]
-```
-
----
-
 ## Change Log
 
 | Date | Task | Version | What changed | Why |
 |------|------|---------|--------------|-----|
-| | Task 1 | v1 | Initial prompt created | Baseline, no architecture hints |
-| | Task 2 | v1 | Initial prompt created | Baseline, no pattern names |
+| 2026-07-26 | Task 1 | v1 | Initial prompt created | Baseline functional prompt, no architecture hints |
+| 2026-07-26 | Task 1 | v2 | Added CQRS and DTO rules | Fixed God Service and Entity exposure violations |
+| 2026-07-26 | Task 1 | v3 | Decomposed Write service | Segregated concerns into Lifecycle, Transaction, Admin |
+| 2026-07-26 | Task 2 | v1 | Initial pattern prompt | Tested unprimed adoption of Strategy, Command, State |
+| 2026-07-26 | Task 2 | v2 | Requested state objects | Converted procedural switch into State pattern |
+| 2026-07-26 | Task 2 | v3 | Added FREEZE action & status | Tested Open-Closed compliance & Expression Problem |
+
