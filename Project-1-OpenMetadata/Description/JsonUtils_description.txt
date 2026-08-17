@@ -1,0 +1,133 @@
+====================================================================
+JsonUtils.java — Description
+====================================================================
+
+OVERVIEW
+--------
+JsonUtils is a final, non-instantiable static utility class that
+centralizes JSON (de)serialization for the codebase, so other classes
+don't each create their own ObjectMapper instances with inconsistent
+settings. It maintains a small number of pre-configured Jackson
+ObjectMapper instances for different situations (strict vs. lenient
+parsing, whether null fields are included), plus generic helper
+methods built on top of them — including a JSON Patch diff helper
+used to compute PATCH request bodies from before/after entity states.
+
+
+STEP-BY-STEP BEHAVIOR
+----------------------
+
+STEP 1 — Private constructor
+  The constructor is private, preventing instantiation — the class is
+  meant to be used purely as a static utility.
+
+STEP 2 — Pre-configured ObjectMapper instances
+  Three static ObjectMapper instances are built via buildMapper(...),
+  each tuned for a different purpose:
+    1. MAPPER (default)
+       - failOnUnknownProperties = true (strict parsing: unknown JSON
+         fields cause deserialization to fail)
+       - includeNulls = false (null fields omitted on output)
+    2. LENIENT_MAPPER
+       - failOnUnknownProperties = false (tolerates unknown fields —
+         useful when reading data written by a newer schema version
+         than this code knows about)
+       - includeNulls = false
+    3. INCLUDE_NULLS_MAPPER
+       - failOnUnknownProperties = true
+       - includeNulls = true (null fields ARE included on output —
+         needed when computing a full snapshot for diffing, since
+         omitted null fields would otherwise be invisible to a JSON
+         Patch diff)
+
+STEP 3 — buildMapper helper
+  Given failOnUnknownProperties and includeNulls flags:
+    1. Creates a new ObjectMapper.
+    2. Configures DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES
+       according to the failOnUnknownProperties flag.
+    3. If includeNulls is false, sets serialization inclusion to
+       NON_NULL (omit nulls). If includeNulls is true, the mapper is
+       left at its default inclusion behavior (include everything,
+       nulls included).
+    4. Returns the configured mapper.
+
+STEP 4 — Serialize an object to JSON (toJson)
+  1. Calls MAPPER.writeValueAsString(object).
+  2. If serialization fails (IOException), wraps and rethrows as an
+     unchecked RuntimeException with a descriptive message.
+
+STEP 5 — Deserialize JSON to an object (readValue, 2 overloads)
+  1. readValue(json, clazz) — convenience overload, delegates to the
+     3-arg version with lenient = false.
+  2. readValue(json, clazz, lenient) — the actual implementation:
+       a. Chooses LENIENT_MAPPER if lenient is true, otherwise MAPPER.
+       b. Calls mapper.readValue(json, clazz).
+       c. If deserialization fails (IOException), wraps and rethrows
+          as a RuntimeException naming the target class.
+
+STEP 6 — Parse JSON into a tree (readTree)
+  1. Calls MAPPER.readTree(json) to get a generic JsonNode
+     representation (not tied to any specific class).
+  2. If parsing fails (IOException), wraps and rethrows as a
+     RuntimeException.
+
+STEP 7 — Compute a JSON Patch between two states (getJsonPatch)
+  1. Serializes both before and after objects to JsonNode form using
+     INCLUDE_NULLS_MAPPER specifically — this ensures fields that
+     were cleared (set to null) in `after` show up as explicit
+     null values rather than being silently omitted, so the diff can
+     detect them as removals.
+  2. Calls JsonDiff.asJson(beforeNode, afterNode) (from the
+     com.github.fge.jsonpatch library) to compute an RFC 6902 JSON
+     Patch describing how to transform `before` into `after`.
+  3. Returns the patch as a JsonNode.
+
+STEP 8 — Apply a JSON Patch to an object (applyPatch)
+  1. Converts the target object into a JsonNode using
+     INCLUDE_NULLS_MAPPER.
+  2. Parses the given patch JsonNode into a JsonPatch object via
+     com.github.fge.jsonpatch.JsonPatch.fromJson(patch).
+  3. Applies the patch to targetNode, producing patchedNode.
+  4. Converts patchedNode back into an instance of clazz via
+     INCLUDE_NULLS_MAPPER.treeToValue(...).
+  5. If patch application or conversion fails (JsonPatchException or
+     IOException), wraps and rethrows as a RuntimeException.
+  6. Returns the patched object.
+
+STEP 9 — Deep-copy an object (deepCopy)
+  1. Serializes the object to a JSON string via toJson(object).
+  2. Immediately deserializes that JSON string back into a new
+     instance via readValue(...).
+  3. Effectively produces an independent deep copy of the object
+     (limited to what round-trips through JSON).
+
+
+SUPPORTING LIBRARIES USED
+----------------------------
+  - com.fasterxml.jackson.databind (Jackson): ObjectMapper, JsonNode,
+    DeserializationFeature — core JSON (de)serialization.
+  - com.github.fge.jsonpatch: JsonPatch, JsonPatchException, and its
+    diff subpackage's JsonDiff — provides real RFC 6902 JSON Patch
+    diff/apply functionality (unlike the placeholder JsonDiff class
+    seen in EntityServiceBase.java, this is an actual library).
+
+
+KEY PATTERNS TO NOTE
+----------------------
+  - Centralizing ObjectMapper configuration avoids subtle bugs from
+    inconsistent settings scattered across the codebase (e.g. one
+    class silently dropping nulls while another doesn't).
+  - The include-nulls mapper is specifically reserved for diffing/
+    patching scenarios, since normal API responses should omit nulls
+    but diffs need to see them to detect field clearing.
+  - All checked exceptions (IOException, JsonPatchException) are
+    converted to unchecked RuntimeExceptions at this boundary, so
+    callers throughout the codebase don't need to handle checked
+    JSON exceptions individually.
+  - deepCopy is a simple but effective pattern: serialize then
+    deserialize, reusing the same (de)serialization logic already
+    defined elsewhere in this class rather than duplicating copy
+    logic.
+  - This class provides the "real" JSON Patch diff/apply
+    implementation that EntityServiceBase.java's private JsonDiff
+    placeholder is structured to mirror on the client side.

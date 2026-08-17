@@ -1,0 +1,114 @@
+====================================================================
+EntityRegistry.java — Description
+====================================================================
+
+OVERVIEW
+--------
+EntityRegistry is a final, non-instantiable static utility class that
+acts as a central lookup table mapping entity type names (e.g.
+"user", "team", "table") to the repository responsible for persisting
+and loading that entity type. Instead of passing repository instances
+around throughout the codebase, other code looks them up on demand by
+entity type through this single access point.
+
+The class is fully static: it holds no instance state, has a private
+constructor, and all its data lives in static fields shared across
+the whole application.
+
+
+STEP-BY-STEP BEHAVIOR
+----------------------
+
+STEP 1 — Private constructor
+  The constructor is private, preventing anyone from instantiating
+  EntityRegistry — it is meant to be used purely as a static utility.
+
+STEP 2 — Well-known entity type constants
+  Three String constants define the recognized entity type names:
+    - USER  = "user"
+    - TEAM   = "team"
+    - TABLE  = "table"
+  The comment notes real systems may have dozens of these; this
+  example keeps just a few to illustrate the pattern.
+
+STEP 3 — Internal static state
+  Three static collections track all registered entity types:
+    1. KNOWN_ENTITY_TYPES (TreeSet<String>)
+       - Holds every entity type name that has been registered, kept
+         in sorted order automatically (TreeSet).
+    2. REPOSITORIES (HashMap<String, EntityRepository<?>>)
+       - Maps entity type name -> repository instance responsible
+         for that type.
+    3. ENTITY_CLASSES (HashMap<String, Class<?>>)
+       - Maps entity type name -> the concrete Java class backing
+         that entity (e.g. "user" -> User.class).
+
+STEP 4 — Registering an entity type (register)
+  Called once at startup for each entity type the system supports.
+  Given an entityType name, a repository instance, and the entity's
+  backing class:
+    1. Stores the repository in REPOSITORIES under that entityType.
+    2. Stores the entity class in ENTITY_CLASSES under that
+       entityType.
+    3. Adds the entityType name to KNOWN_ENTITY_TYPES.
+
+STEP 5 — Looking up a repository (getRepository)
+  Given an entityType name:
+    1. Looks up the repository in REPOSITORIES.
+    2. If none is found, throws IllegalArgumentException stating no
+       repository is registered for that entity type.
+    3. Otherwise, casts the raw EntityRepository<?> to the caller's
+       requested generic type EntityRepository<T> (unchecked cast,
+       suppressed via @SuppressWarnings) and returns it.
+
+STEP 6 — Looking up an entity class (getEntityClass)
+  Given an entityType name:
+    1. Looks up the Class<?> in ENTITY_CLASSES.
+    2. If none is found, throws IllegalArgumentException stating the
+       entity type is unknown.
+    3. Otherwise returns the Class<?>.
+
+STEP 7 — Checking if a type is known (isKnownEntityType)
+  Returns true/false depending on whether the given entityType name
+  exists in KNOWN_ENTITY_TYPES.
+
+STEP 8 — Retrieving all known types (getKnownEntityTypes)
+  Returns the full KNOWN_ENTITY_TYPES set (sorted, since it's backed
+  by a TreeSet) directly to the caller.
+
+STEP 9 — Bootstrapping at startup (bootstrap)
+  A convenience method demonstrating how registration typically
+  happens once, at application startup, wiring every entity type to
+  its repository in one call. It accepts three Supplier arguments
+  (one per entity type: User, Team, Table), and for each:
+    1. Calls the supplier to obtain (lazily construct) the repository
+       instance.
+    2. Calls register(...) with the appropriate constant, the newly
+       built repository, and the entity's class object.
+  This is done for USER/User.class, TEAM/Team.class, and
+  TABLE/Table.class in sequence.
+
+
+SUPPORTING/COMPILE-ONLY TYPES
+--------------------------------
+These exist purely so the example compiles standalone:
+  1. EntityRepository<T> (nested interface)
+     - Minimal contract: getById(id) and save(entity).
+  2. User, Team, Table (empty static classes)
+     - Placeholder entity classes representing the three well-known
+       entity types.
+
+
+KEY PATTERNS TO NOTE
+----------------------
+  - Acts as a simple service locator / registry pattern: entity type
+    name (String) is the key used everywhere to resolve both the
+    repository and the backing Java class.
+  - Registration is expected to happen once, at startup, typically
+    via bootstrap(); lookups (getRepository, getEntityClass,
+    isKnownEntityType) happen throughout the application's lifetime.
+  - Unchecked generic casting in getRepository() places the burden of
+    using the correct type parameter on the caller — there is no
+    runtime type safety enforced beyond the entityType string key.
+  - Fails fast with IllegalArgumentException when a lookup targets an
+    unregistered/unknown entity type, rather than returning null.

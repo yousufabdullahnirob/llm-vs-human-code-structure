@@ -1,0 +1,115 @@
+====================================================================
+EntityResource.java — Description
+====================================================================
+
+OVERVIEW
+--------
+EntityResource<T> is a generic abstract base class for exposing
+standard CRUD REST endpoints (GET, GET list, POST, PUT, DELETE) for a
+single entity type, built on JAX-RS (jakarta.ws.rs) annotations.
+Concrete resources (e.g. UserResource) extend this and supply the
+entity type name, a repository, and an authorizer; this class wires
+up the common request-handling flow shared by every entity resource:
+
+    authorization check -> repository call -> HTTP response
+
+This mirrors a common pattern in larger metadata-catalog systems where
+dozens of near-identical REST resources (one per entity type) share a
+single generic base class instead of duplicating this wiring.
+
+
+STEP-BY-STEP BEHAVIOR
+----------------------
+
+STEP 1 — Construction
+  A subclass constructor calls the protected EntityResource
+  constructor, passing in:
+    - entityType  : the entity type name (used in authorization
+                     calls, e.g. "user")
+    - repository   : an EntityRepository<T> for persistence
+                     operations
+    - authorizer   : an Authorizer implementation used to enforce
+                     access control before every operation
+
+STEP 2 — Get a single entity (GET /{id})
+  1. Reads the current SecurityContext (injected via @Context) and
+     the path parameter id.
+  2. Calls authorizer.authorizeRead(securityContext, entityType, id)
+     to check the caller is allowed to read this specific entity.
+  3. Fetches the entity via repository.getById(id).
+  4. If the entity is null, returns HTTP 404 Not Found.
+  5. Otherwise, returns HTTP 200 OK with the entity as the response
+     body.
+
+STEP 3 — List entities (GET, no id)
+  1. Accepts two query parameters:
+       - limit  (defaults to 10 if not provided)
+       - after  (cursor for pagination, optional)
+  2. Calls authorizer.authorizeReadAll(securityContext, entityType)
+     to check the caller is allowed to list/read all entities of
+     this type.
+  3. Fetches a page of entities via repository.list(limit, after).
+  4. Returns HTTP 200 OK with the list of entities as the response
+     body.
+
+STEP 4 — Create an entity (POST)
+  1. Accepts the new entity as the request body (deserialized to
+     type T).
+  2. Calls authorizer.authorizeCreate(securityContext, entityType)
+     to check the caller is allowed to create entities of this type.
+  3. Persists the entity via repository.save(entity).
+  4. Returns HTTP 201 Created with the saved entity as the response
+     body.
+
+STEP 5 — Update an entity (PUT /{id})
+  1. Accepts the path parameter id and the updated entity as the
+     request body.
+  2. Calls authorizer.authorizeUpdate(securityContext, entityType,
+     id) to check the caller is allowed to update this specific
+     entity.
+  3. Persists the change via repository.save(entity).
+  4. Returns HTTP 200 OK with the updated entity as the response
+     body.
+
+STEP 6 — Delete an entity (DELETE /{id})
+  1. Reads the path parameter id.
+  2. Calls authorizer.authorizeDelete(securityContext, entityType,
+     id) to check the caller is allowed to delete this specific
+     entity.
+  3. Deletes the entity via repository.delete(id).
+  4. Returns HTTP 204 No Content.
+
+
+SUPPORTING TYPES
+-----------------
+  - Authorizer (nested interface): a minimal authorization contract
+    standing in for a real policy engine. Declares one method per
+    operation type:
+      - authorizeRead(ctx, entityType, id)
+      - authorizeReadAll(ctx, entityType)
+      - authorizeCreate(ctx, entityType)
+      - authorizeUpdate(ctx, entityType, id)
+      - authorizeDelete(ctx, entityType, id)
+    Each is expected to throw (e.g. a 403/401-style exception) if the
+    caller is not permitted to perform that operation; none return a
+    value, so the authorization check is enforced purely via
+    side-effect (throwing) before the repository call proceeds.
+
+
+KEY PATTERNS TO NOTE
+----------------------
+  - Every endpoint follows the same three-step shape: authorize ->
+    call repository -> build Response. This is the reusable pattern
+    the base class exists to capture.
+  - Authorization is always performed BEFORE the repository call,
+    ensuring no data access or mutation happens for unauthorized
+    requests.
+  - HTTP status codes are chosen per REST convention: 200 for
+    successful reads/updates, 201 for creation, 204 for deletion,
+    404 when a read misses.
+  - The repository type referenced here (EntityRepository<T> imported
+    from EntityRegistry) is a lightweight interface with getById/save
+    style methods — a different, simpler contract than the DAO-backed
+    EntityRepository base class seen in EntityRepository.java; this
+    class is written generically against whatever repository
+    interface is supplied.

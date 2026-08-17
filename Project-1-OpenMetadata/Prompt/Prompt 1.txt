@@ -1,0 +1,1 @@
+Reconstruct the selected OpenMetadata system based on the provided source files. Preserve the main functionality and object-oriented structure.

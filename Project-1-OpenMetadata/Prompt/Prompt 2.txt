@@ -1,0 +1,1 @@
+The previous reconstruction lost the Factory pattern. Reconstruct the system again while explicitly preserving the Factory abstraction and separating object creation from business logic.

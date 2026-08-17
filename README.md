@@ -39,11 +39,21 @@ This assignment compares a pre-LLM production human enterprise system against an
 
 ---
 
+## Team Comparative Analysis
+
+This repository includes a comprehensive academic research comparison evaluating **MY PROJECT** (Apache Fineract $\rightarrow$ LLM reconstruction) against **MY TEAMMATE'S PROJECT** (OpenMetadata $\rightarrow$ Teammate's LLM reconstruction):
+- **Full Comparative Report:** [Team Comparative Analysis](team-comparative-analysis.md)
+
+This comparative report investigates the core research question: *"Why did two students using LLMs for the same type of software-structure analysis produce structurally distinct reconstructed systems?"* It covers empirical inventory audits, original source architecture comparison, prompt evolution analysis, 4-system architecture comparison, SOLID and code smell evaluations, metric consolidation, and causal chain analysis.
+
+---
+
 ## # Repository Organization & Recommended Reading Order
 
 ```
 e:\cse423\
 ├── README.md                             # Project landing page & navigation guide
+├── team-comparative-analysis.md          # Comprehensive academic report comparing My vs Teammate projects
 ├── selected-files.md                     # File-by-file selected source code descriptions
 ├── prompts.md                            # Master prompt audit log (Tasks 1 & 2, v1-v3)
 ├── analysis.md                           # Comprehensive quantitative research report
@@ -51,6 +61,7 @@ e:\cse423\
 │   └── screenshots/                      # Organized visual evidence gallery (Fig 1 - Fig 10)
 ├── fineract/                             # Dedicated folder for Apache Fineract reference codebase
 │   └── docs/snapshot_info.md             # Snapshot verification details & reproduction steps
+├── Project-1-OpenMetadata/               # Dedicated folder for Teammate's OpenMetadata reconstruction
 └── llm-generated/                        # Dedicated root folder for LLM reconstructed code
     ├── task1-architecture/               # Task 1 architectural evolution snapshots
     │   ├── v1/                           # Version 1: Baseline God Service + Entity leak
@@ -64,10 +75,11 @@ e:\cse423\
 
 ### Recommended Reading Order for Evaluators:
 1. **Start Here:** Read [README.md](file:///e:/cse423/README.md) for executive summary, metadata, project links, and directory layout.
-2. **Inspect Selected Files:** Read [selected-files.md](file:///e:/cse423/selected-files.md) for class-by-class descriptions of chosen source files from both projects.
-3. **Review Prompt Evolution:** Read [prompts.md](file:///e:/cse423/prompts.md) to inspect exact prompt iterations ($v1, v2, v3$), reasoning, and change logs.
-4. **Examine Quantitative Metrics & Research Findings:** Read [analysis.md](file:///e:/cse423/analysis.md) for LPS, DPPI, CBO, LCOM, and $R_{\text{OCP}}$ metric math proofs and comparative synthesis.
-5. **Verify Source Code Snapshots:** Inspect physical code directories in [llm-generated/task1-architecture/](file:///e:/cse423/llm-generated/task1-architecture/) and [llm-generated/task2-design-patterns/](file:///e:/cse423/llm-generated/task2-design-patterns/).
+2. **Examine Team Comparative Analysis:** Read [team-comparative-analysis.md](file:///e:/cse423/team-comparative-analysis.md) for the full academic comparison between My Apache Fineract reconstruction and Teammate's OpenMetadata reconstruction.
+3. **Inspect Selected Files:** Read [selected-files.md](file:///e:/cse423/selected-files.md) for class-by-class descriptions of chosen source files from both projects.
+4. **Review Prompt Evolution:** Read [prompts.md](file:///e:/cse423/prompts.md) to inspect exact prompt iterations ($v1, v2, v3$), reasoning, and change logs.
+5. **Examine Quantitative Metrics & Research Findings:** Read [analysis.md](file:///e:/cse423/analysis.md) for LPS, DPPI, CBO, LCOM, and $R_{\text{OCP}}$ metric math proofs and comparative synthesis.
+6. **Verify Source Code Snapshots:** Inspect physical code directories in [llm-generated/task1-architecture/](file:///e:/cse423/llm-generated/task1-architecture/) and [llm-generated/task2-design-patterns/](file:///e:/cse423/llm-generated/task2-design-patterns/).
 
 ---
 

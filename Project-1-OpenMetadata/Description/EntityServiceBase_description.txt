@@ -1,0 +1,130 @@
+====================================================================
+EntityServiceBase.java — Description
+====================================================================
+
+OVERVIEW
+--------
+EntityServiceBase<T> is a generic abstract base class for a typed HTTP
+client "service" (e.g. UserService, TeamService) that talks to a REST
+API for a single entity type. Concrete services extend it and supply
+the entity's class (for JSON (de)serialization) plus an HttpClient and
+basePath.
+
+The interesting piece of the pattern: whenever an entity is fetched
+(or created/updated), a JSON snapshot of its state is cached. When
+update() is later called, the new state is diffed against that cached
+snapshot (rather than against an empty object), so fields the caller
+cleared out (set to null) are correctly captured in the resulting
+patch — even though null fields are normally omitted from
+serialization.
+
+
+STEP-BY-STEP BEHAVIOR
+----------------------
+
+STEP 1 — Construction
+  A subclass constructor calls the protected EntityServiceBase
+  constructor, passing in:
+    - httpClient  : abstraction for making HTTP calls
+    - basePath     : the REST base path for this entity type
+  During construction:
+    1. A new Jackson ObjectMapper is created and stored as
+       objectMapper.
+    2. Its serialization inclusion is set to NON_NULL, meaning null
+       fields are omitted when serializing objects to JSON by
+       default.
+
+STEP 2 — Snapshot cache
+  A bounded LRU cache (snapshots) maps entity id -> last-seen JsonNode
+  snapshot of that entity's state.
+    1. Implemented as a synchronized LinkedHashMap with
+       accessOrder=true (the `true` third constructor arg), so
+       recently accessed entries are treated as most-recently-used.
+    2. removeEldestEntry() is overridden to evict the oldest entry
+       once the cache exceeds MAX_SNAPSHOTS (500), keeping memory
+       bounded.
+    3. Access is wrapped via Collections.synchronizedMap for
+       thread-safety.
+
+STEP 3 — Abstract hook
+  getEntityClass() (abstract): subclasses must return the concrete
+  entity class (e.g. User.class) so the base class can deserialize
+  HTTP responses into the correct type.
+
+STEP 4 — Create an entity (create)
+  1. Sends an HTTP POST to basePath with the given entity as the
+     request body.
+  2. Deserializes and returns the response as type T.
+  3. NOTE: unlike get()/update(), no snapshot is stored here — the
+     cache is only populated on get() and update().
+
+STEP 5 — Fetch an entity (get)
+  1. Sends an HTTP GET to basePath + "/" + id (no request body).
+  2. Deserializes the response into type T.
+  3. Calls storeSnapshot(id, entity) to cache the fetched entity's
+     JSON representation, keyed by id.
+  4. Returns the fetched entity.
+
+STEP 6 — Update an entity (update) — the core logic
+  1. Looks up the cached baseline snapshot for this id from
+     snapshots (may be null if never fetched before).
+  2. Converts the incoming updatedEntity into a JsonNode (target)
+     via objectMapper.valueToTree(...).
+  3. Computes a patch:
+       - If a baseline snapshot exists, diff baseline -> target via
+         JsonDiff.diff(baseline, target).
+       - If no baseline exists, diff an empty object node -> target,
+         effectively treating every field on target as new/changed.
+  4. Sends an HTTP PATCH to basePath + "/" + id with the computed
+     patch as the request body.
+  5. Deserializes the response into type T (result).
+  6. Calls storeSnapshot(id, result) to refresh the cached snapshot
+     with the server's returned (post-update) state.
+  7. Returns result.
+
+STEP 7 — Delete an entity (delete)
+  1. Sends an HTTP DELETE to basePath + "/" + id, expecting no
+     response body (Void.class).
+  2. Removes the cached snapshot for this id from snapshots, if
+     present.
+
+STEP 8 — Internal helper (storeSnapshot)
+  1. Converts the given entity to a JsonNode via
+     objectMapper.valueToTree(...).
+  2. Stores it in the snapshots map under the given id, overwriting
+     any prior snapshot.
+
+
+SUPPORTING TYPES
+-----------------
+  - HttpClient (interface): abstraction over the actual HTTP
+    transport. Single method execute(method, path, body,
+    responseType) performs the call and deserializes the response.
+  - HttpMethod (enum): GET, POST, PATCH, DELETE.
+  - JsonDiff (private static nested class): a stand-in placeholder
+    for a real JSON Patch diff library (e.g. zjsonpatch). Its diff()
+    method currently just throws UnsupportedOperationException — in
+    the real system this would compute an RFC 6902 JSON Patch between
+    two JsonNode states. (Note: JsonUtils.java, described separately,
+    shows a working implementation of this same idea using
+    com.github.fge.jsonpatch.)
+
+
+KEY PATTERNS TO NOTE
+----------------------
+  - The "snapshot + diff" pattern is the central idea: because
+    serialization omits null fields by default, diffing against an
+    empty baseline would silently drop any field the caller nulled
+    out. Diffing against the last-known real state preserves those
+    null-clearing changes correctly as part of the patch.
+  - The snapshot cache is bounded (LRU, capped at 500 entries) to
+    avoid unbounded memory growth for long-lived service instances
+    that touch many distinct entities.
+  - create() does not store a snapshot, meaning the very first
+    update() after a create() (without an intervening get()) would
+    fall back to diffing against an empty object — this is a subtle
+    asymmetry worth being aware of if extending this class.
+  - This class is structurally the "client-side twin" of the
+    server-side JSON diffing pattern implemented in JsonUtils.java
+    (getJsonPatch/applyPatch), though each uses its own JSON Patch
+    diff placeholder/library.

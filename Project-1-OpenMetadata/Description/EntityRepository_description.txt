@@ -1,0 +1,104 @@
+====================================================================
+EntityRepository.java — Description
+====================================================================
+
+OVERVIEW
+--------
+EntityRepository<T extends Entity> is a generic abstract base class used
+to persist a single entity type (e.g. Users, Groups, etc.) in the
+metadata service. Concrete repositories extend it and provide:
+  1. A DAO implementation (EntityDao<T>) for actual storage operations
+  2. An entityType label (used in error messages)
+  3. A list of "majorVersionFields" — fields whose change should bump
+     the entity's major version number
+
+Its core responsibility beyond plain CRUD is VERSION TRACKING: every
+update is diffed against the previous state, the changed fields are
+recorded, and the entity's version number is incremented differently
+depending on whether a "major" or "minor" field changed.
+
+
+STEP-BY-STEP BEHAVIOR
+----------------------
+
+STEP 1 — Construction
+  A subclass constructor calls the protected EntityRepository
+  constructor, passing in:
+    - dao                : the storage implementation
+    - entityType          : human-readable type name (for errors)
+    - majorVersionFields  : list of field names considered "major"
+
+STEP 2 — Create an entity (create)
+  1. A new random UUID is generated and assigned as the entity's id.
+  2. The entity's version is initialized to 1.0.
+  3. prepare(entity) is called — a hook subclasses can override to
+     fill in derived fields before saving (default: does nothing).
+  4. The entity is inserted via dao.insert(entity).
+  5. The saved entity is returned.
+
+STEP 3 — Fetch an entity (getById)
+  1. dao.findById(id) is called.
+  2. If nothing is found, an EntityNotFoundException is thrown
+     (includes entityType and id in the message).
+  3. Otherwise the entity is returned.
+
+STEP 4 — Update an entity (update) — the core logic
+  1. The original entity is fetched via getById(id) (throws if
+     missing).
+  2. prepare(updatedEntity) is called to fill in derived fields on
+     the incoming entity.
+  3. computeChange(original, updatedEntity) is called to diff the
+     two entities field by field:
+       a. Loop over every field name returned by entityFields()
+          (subclass-defined).
+       b. For each field, read the old value (original) and new
+          value (updated) via getFieldValue(field).
+       c. If the values differ (Objects.equals check), record a
+          FieldChange, flagging it "major" if the field name is in
+          majorVersionFields, otherwise "minor".
+       d. All differences are collected into a ChangeDescription.
+  4. If the ChangeDescription is empty (no fields differ), the
+     update is a no-op: the ORIGINAL entity is returned unchanged
+     and nothing is persisted.
+  5. Otherwise, a new version number is computed:
+       - If ANY changed field was major → nextMajorVersion(original
+         version) = floor(currentVersion) + 1.0
+       - Else (only minor fields changed) → nextMinorVersion
+         (originalVersion) = currentVersion + 0.1
+  6. The updated entity's id and new version are set.
+  7. The updated entity is persisted via dao.update(updatedEntity).
+  8. The change record is persisted via
+     dao.recordChange(id, newVersion, change).
+  9. The updated entity is returned.
+
+STEP 5 — Delete an entity (delete)
+  1. getById(id) is called first purely to confirm the entity
+     exists (fail-fast) — its return value is discarded.
+  2. dao.softDelete(id) is called to perform the actual (soft)
+     deletion.
+
+STEP 6 — List entities (list)
+  1. Simply delegates to dao.list(limit, after) for pagination.
+     No extra logic here.
+
+STEP 7 — Subclass responsibilities
+  - entityFields() (abstract): must return the list of field names
+    that participate in change detection/versioning.
+  - prepare(entity) (optional override): fill in any derived/
+    computed fields before the entity is persisted.
+
+
+SUPPORTING TYPES
+-----------------
+- EntityDao<T> (interface): the storage contract — insert, update,
+  findById, softDelete, list, recordChange.
+- Entity (interface): contract every managed entity must satisfy —
+  id, version getters/setters, and getFieldValue(fieldName) for
+  generic field access during diffing.
+- ChangeDescription (class): holds a list of FieldChange entries;
+  exposes isEmpty() and hasMajorChange() used to decide whether/how
+  to bump the version.
+- FieldChange (record): one changed field — field name, old value,
+  new value, and whether it's a major change.
+- EntityNotFoundException (RuntimeException): thrown when an entity
+  lookup by id fails.

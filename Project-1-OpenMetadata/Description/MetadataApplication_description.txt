@@ -1,0 +1,142 @@
+====================================================================
+MetadataApplication.java — Description
+====================================================================
+
+OVERVIEW
+--------
+MetadataApplication is the application entry point for the metadata
+service, built on the Dropwizard framework. It extends
+Application<MetadataApplicationConfig> and is responsible for wiring
+together the database, background jobs, and REST resources before
+handing control to Dropwizard's embedded server.
+
+The overall shape follows Dropwizard's two-phase lifecycle:
+  - initialize(): registers bundles that need to hook in BEFORE
+    configuration is parsed (e.g. config substitution, static assets).
+  - run(): performs an ordered bootstrap once configuration IS
+    available — connect to the database, run migrations, wire up the
+    shared DAO, register resources/health checks, then start any
+    background jobs.
+
+
+STEP-BY-STEP BEHAVIOR
+----------------------
+
+STEP 1 — Application startup (main)
+  1. A new MetadataApplication instance is created.
+  2. Its inherited run(args) method (from Dropwizard's Application) is
+     invoked with the command-line arguments, kicking off the
+     framework's normal startup sequence (which eventually calls
+     initialize() and then run(config, environment) below).
+
+STEP 2 — Application name (getName)
+  Returns "metadata-service" — used by Dropwizard for logging/CLI
+  identification.
+
+STEP 3 — Pre-configuration bundle registration (initialize)
+  Called before the configuration file is parsed. Registers two
+  bundles on the Bootstrap object:
+    1. ConfigSubstitutionBundle — enables environment-variable
+       substitution inside the config file (e.g. ${DB_URL}).
+    2. StaticAssetBundle — serves the web UI's static assets.
+  These must be registered at this early stage because they hook into
+  how configuration/assets are handled before the rest of the app is
+  wired up.
+
+STEP 4 — Main application bootstrap (run)
+  Called once configuration has been parsed into a
+  MetadataApplicationConfig object. Executes the following steps in
+  strict order:
+
+  4.1 Connect to the database
+      - connectToDatabase(config) is called (see STEP 5), producing a
+        configured Jdbi instance.
+
+  4.2 Run database migrations
+      - runDatabaseMigrations(jdbi, config) is called (see STEP 6)
+        BEFORE anything else touches the schema, ensuring the DB is
+        up to date first.
+
+  4.3 Build the shared DAO and register it globally
+      - jdbi.onDemand(CollectionDao.class) creates an on-demand DAO
+        instance (JDBI generates the implementation at runtime, as
+        seen in the CollectionDAO pattern).
+      - EntityRegistry.setCollectionDao(collectionDao) makes this DAO
+        available application-wide via the static EntityRegistry.
+
+  4.4 Register exception mappers
+      - registerExceptionMappers(environment) is called (see STEP 7)
+        so REST error responses are handled consistently.
+
+  4.5 Register REST resources
+      - registerResources(environment, collectionDao) is called (see
+        STEP 8), wiring up the actual API endpoints.
+
+  4.6 Register health checks
+      - registerHealthChecks(environment, jdbi) is called (see STEP
+        9) so the service reports its own health (e.g. via /healthcheck).
+
+  4.7 Start background jobs
+      - startBackgroundJobs(config, jdbi) is called last (see STEP
+        10), only after the app is otherwise fully wired up and ready
+        to serve traffic.
+
+STEP 5 — connectToDatabase (private helper)
+  1. Creates a Jdbi instance from config.getDatabase().getUrl().
+  2. Installs the SqlObjectPlugin, which enables JDBI's
+     annotation-based SQL object interfaces (as used by
+     CollectionDAO-style DAOs).
+  3. Returns the configured Jdbi instance.
+
+STEP 6 — runDatabaseMigrations (private helper)
+  1. Constructs a MigrationRunner with the Jdbi instance and the
+     migrations path from config.
+  2. Calls runAll() to execute all pending migrations.
+  3. Comment notes a real implementation would run Flyway/Liquibase-
+     style migration scripts here.
+
+STEP 7 — registerExceptionMappers (private helper)
+  Registers two Jersey exception mappers on the environment:
+    1. NotFoundExceptionMapper — presumably maps "not found" style
+       exceptions (e.g. EntityNotFoundException) to HTTP 404.
+    2. ValidationExceptionMapper — presumably maps validation
+       failures to an appropriate error response.
+
+STEP 8 — registerResources (private helper)
+  Registers the concrete REST resource instances with Jersey, each
+  constructed with the shared collectionDao:
+    1. new UserResource(collectionDao)
+    2. new TeamResource(collectionDao)
+  (These would presumably extend the generic EntityResource<T> base
+  class described previously, one per entity type.)
+
+STEP 9 — registerHealthChecks (private helper)
+  Registers a single health check named "database", backed by a
+  DatabaseHealthCheck(jdbi) instance — used by Dropwizard's built-in
+  health check endpoint to verify DB connectivity.
+
+STEP 10 — startBackgroundJobs (private helper)
+  1. Checks config.isSearchIndexingEnabled().
+  2. If enabled, constructs a SearchIndexingJob(jdbi) and calls
+     scheduleRecurring() to start it running on a recurring schedule.
+  3. If disabled, no background job is started.
+
+
+KEY PATTERNS TO NOTE
+----------------------
+  - Strict ordering matters: DB connection -> migrations -> DAO setup
+    -> exception mappers -> resources -> health checks -> background
+    jobs. Migrations must run before any DAO touches the schema;
+    resources depend on the DAO being ready; background jobs start
+    last since they may immediately begin querying the DB.
+  - The DAO is registered globally via a static EntityRegistry rather
+    than only being passed to resource constructors — suggesting
+    other parts of the app (outside the REST layer) may also need
+    DAO access via that same static lookup point.
+  - Bundles needed before config parsing (initialize) are kept
+    strictly separate from bootstrap logic that depends on parsed
+    config (run) — this is a Dropwizard-specific lifecycle
+    requirement.
+  - Background jobs are feature-flagged via configuration
+    (isSearchIndexingEnabled), allowing them to be toggled per
+    environment without code changes.

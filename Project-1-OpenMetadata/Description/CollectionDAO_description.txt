@@ -1,0 +1,114 @@
+====================================================================
+CollectionDAO.java — Description
+====================================================================
+
+OVERVIEW
+--------
+CollectionDAO is a top-level JDBI3 data-access interface. It does not
+contain any hand-written SQL execution logic itself — JDBI generates a
+runtime implementation of this interface (and every nested
+sub-interface) based on the annotations declared on each method. The
+pattern shown here is used across a larger system: one top-level DAO
+that is composed of several per-entity sub-DAOs (UserDAO, TeamDAO,
+...), plus a shared RelationshipDAO used to model relationships
+between different entity types.
+
+All sub-DAOs follow the same conventions:
+  - cursor-based pagination (instead of OFFSET)
+  - dialect switching (MySQL vs Postgres) via @Define
+  - row mapping via @RegisterRowMapper
+  - batch inserts via @SqlBatch where needed
+
+
+STEP-BY-STEP BEHAVIOR
+----------------------
+
+STEP 1 — Top-level DAO accessors
+  CollectionDAO exposes three accessor methods, each returning a
+  sub-DAO. JDBI wires these up automatically:
+    - userDAO()          -> UserDAO
+    - teamDAO()           -> TeamDAO
+    - relationshipDAO()   -> RelationshipDAO
+
+STEP 2 — UserDAO (per-entity DAO for User)
+  Annotated with @RegisterRowMapper(UserRowMapper.class), so every
+  query result row is converted to a String (the stored JSON blob)
+  using UserRowMapper.
+
+  1. insert(id, name, email, json)
+     - Runs a plain SqlUpdate INSERT into user_entity with the four
+       given columns.
+  2. findJsonById(id)
+     - SqlQuery that selects the json column for a given id, returns
+       a single String (the raw JSON of that user).
+  3. findJsonByName(name)
+     - Same idea, but looks up by the name column instead of id.
+  4. delete(id)
+     - SqlUpdate DELETE FROM user_entity WHERE id = :id.
+  5. listAfter(afterName, afterNameValue, limit)
+     - Implements cursor-based pagination:
+         a. @Define("afterName") supplies the SQL fragment used in
+            the WHERE clause, allowing MySQL/Postgres-specific syntax
+            to be swapped in per-database dialect.
+         b. The query filters rows where name is NULL (first page)
+            or greater than the last-seen name (subsequent pages).
+         c. Results are ordered by name and capped by :limit.
+     - This avoids the performance cost of OFFSET-based pagination on
+       large tables.
+  6. insertBatch(users)
+     - @SqlBatch bulk-inserts a list of UserRecord objects in one
+       batch operation, using @BindBean to map each record's fields
+       to the insert statement's named parameters.
+
+STEP 3 — TeamDAO (per-entity DAO for Team)
+  Annotated with @RegisterRowMapper(TeamRowMapper.class), following
+  the exact same conventions as UserDAO, but with fewer methods:
+  1. insert(id, name, json)
+     - SqlUpdate INSERT into team_entity.
+  2. findJsonById(id)
+     - SqlQuery returning the json column for a given id.
+  3. listAfter(afterName, afterNameValue, limit)
+     - Same cursor-based pagination pattern as UserDAO.listAfter,
+       applied to team_entity.
+
+STEP 4 — RelationshipDAO (shared join/relationship table)
+  Models generic many-to-many relationships between arbitrary entity
+  types (e.g. "team owns table", "user follows dashboard") without
+  needing a dedicated join table per relationship kind.
+  1. insert(fromId, fromType, toId, toType, relation)
+     - SqlUpdate INSERT into entity_relationship, storing both sides
+       of the relationship (id + type) plus a relation label.
+  2. findRelatedIds(fromId, fromType, relation)
+     - SqlQuery that selects to_id from entity_relationship, filtered
+       by from_id, from_type, and relation — returns a list of
+       related entity ids.
+  3. delete(fromId, toId, relation)
+     - SqlUpdate DELETE that removes a specific relationship row,
+       matched by from_id, to_id, and relation.
+
+STEP 5 — Supporting/compile-only types
+  These exist purely so the example compiles standalone; in the real
+  system they'd likely live in their own files.
+  1. UserRecord (record: id, name, email, json)
+     - Represents one row to be batch-inserted.
+     - Static factory newUser(name, email, json) generates a new
+       random UUID for the id field automatically.
+  2. UserRowMapper (implements RowMapper<String>)
+     - Maps a JDBC ResultSet row to a String by reading its "json"
+       column. Used by UserDAO queries.
+  3. TeamRowMapper (implements RowMapper<String>)
+     - Same idea as UserRowMapper, but registered against TeamDAO.
+
+
+KEY PATTERNS TO NOTE
+----------------------
+  - Every entity is stored with a "json" column holding its full
+    serialized state, alongside a few indexed columns (id, name,
+    email) used for lookups/sorting.
+  - Pagination is cursor-based (WHERE name > :afterName ORDER BY
+    name LIMIT :limit), not offset-based.
+  - @Define is used specifically to let one query definition emit
+    different SQL fragments depending on database dialect.
+  - Relationships between different entity types are modeled
+    generically through a single entity_relationship table rather
+    than one join table per relationship type.

@@ -1,0 +1,97 @@
+====================================================================
+SecureErrorPageHandler.java — Description
+====================================================================
+
+OVERVIEW
+--------
+SecureErrorPageHandler is a custom Jetty error page handler that
+ensures security headers (HSTS, CSP, frame options, etc.) are attached
+to error responses before Jetty renders them.
+
+The problem it solves: Jetty's default error handler bypasses the
+normal response filter chain, so security headers that are normally
+added elsewhere in the application (via a filter, for example) never
+make it onto error pages — unless they are explicitly re-applied at
+this specific point in the error-handling path.
+
+It extends Jetty's ErrorPageErrorHandler (from the ee10 servlet
+package) and overrides the method responsible for generating the
+final error response.
+
+
+STEP-BY-STEP BEHAVIOR
+----------------------
+
+STEP 1 — Construction
+  The constructor takes a WebSecurityConfig instance and stores it as
+  securityConfig — this supplies the actual header values to apply.
+
+STEP 2 — Intercepting error response generation
+  (generateAcceptableResponse — overridden from ErrorPageErrorHandler)
+  This is the core hook Jetty calls when building an error page
+  response. On every invocation:
+    1. applySecurityHeaders(securityConfig, response) is called
+       FIRST, attaching all configured security headers directly to
+       the Jetty Response object before any error content is
+       written.
+    2. Only after headers are applied does it delegate to
+       super.generateAcceptableResponse(...) with all the original
+       arguments (request, response, callback, contentType, charsets,
+       code, message, cause), letting Jetty's normal logic render the
+       actual error page content/body.
+  This guarantees headers are present on the response regardless of
+  what the parent class does afterward, since they're set before
+  Jetty writes anything.
+
+STEP 3 — Applying headers to a Jetty response (static helper,
+  Jetty ee10 Response variant)
+  applySecurityHeaders(config, response):
+    1. Calls config.buildHeaders() to get a Map<String, String> of
+       header name -> value pairs.
+    2. For each entry, wraps it in a new Jetty HttpField(key, value)
+       and adds it to response.getHeaders() via put(...) (overwriting
+       any existing header with the same name).
+  This overload is used specifically within the Jetty error-handling
+  path (STEP 2 calls this one).
+
+STEP 4 — Applying headers to a plain servlet response (static
+  helper, HttpServletResponse variant)
+  applySecurityHeaders(config, response):
+    1. Calls config.buildHeaders() to get the same header map.
+    2. Iterates the map with forEach, calling
+       response.setHeader(key, value) for each entry directly on the
+       standard servlet API.
+  This overload exists for use OUTSIDE Jetty's special error-handling
+  path — e.g. in a normal servlet filter applying the same headers to
+  successful (non-error) responses, reusing the identical header
+  logic/config so both paths stay in sync.
+
+STEP 5 — WebSecurityConfig contract (nested interface)
+  A minimal stand-in for the real configuration object:
+    - buildHeaders(): Map<String, String>
+      Collects all enabled security headers (HSTS, frame options,
+      CSP, referrer policy, etc.) into a single name -> value map that
+      both applySecurityHeaders overloads above can consume uniformly.
+  The comment notes a real implementation would build the
+  Content-Security-Policy header with a per-request nonce (rather
+  than a static value), which this simplified interface doesn't model.
+
+
+KEY PATTERNS TO NOTE
+----------------------
+  - Two overloaded static applySecurityHeaders methods share the same
+    underlying config.buildHeaders() call, ensuring error-page
+    responses and normal responses apply IDENTICAL header values —
+    avoiding drift between the two code paths.
+  - Headers are applied BEFORE delegating to the parent class's
+    rendering logic, which is essential: once the parent starts
+    writing the response body, it may be too late to safely add
+    headers depending on the underlying HTTP implementation.
+  - The class exists specifically to patch a gap in Jetty's request
+    lifecycle (error responses skip the normal filter chain) rather
+    than to introduce new security policy of its own — the actual
+    header values are entirely delegated to the injected
+    WebSecurityConfig.
+  - Using put(...) rather than add(...) on response.getHeaders()
+    means each header name is set once (overwriting duplicates)
+    rather than appended multiple times.
